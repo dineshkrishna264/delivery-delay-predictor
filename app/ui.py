@@ -1,7 +1,6 @@
 import os
 import joblib
 import pandas as pd
-import requests
 import streamlit as st
 
 # Page Configuration
@@ -13,12 +12,25 @@ st.set_page_config(
 
 st.title("📦 E-Commerce Delivery Delay Risk Evaluator")
 st.markdown(
-    "Evaluate real-time shipping delay probability for incoming customer orders."
+    "Interactively adjust order parameters below for instant real-time shipping delay evaluation."
 )
 
 st.divider()
 
-# Interactive Input Layout
+
+# Cache model loading into memory so it only loads once across reruns
+@st.cache_resource
+def load_model_artifact():
+    model_path = os.path.join("models", "delay_model.joblib")
+    if not os.path.exists(model_path):
+        st.error("❌ Model artifact not found at `models/delay_model.joblib`.")
+        st.stop()
+    return joblib.load(model_path)
+
+
+artifact = load_model_artifact()
+
+# Interactive Input Layout (2 Columns)
 col1, col2 = st.columns(2)
 
 with col1:
@@ -67,75 +79,49 @@ with col2:
 
 st.divider()
 
+# Construct Input DataFrame matching exact model feature names
+payload = {
+    "total_freight_value": total_freight_value,
+    "total_item_price": total_item_price,
+    "num_items": int(num_items),
+    "product_weight_g": product_weight_g,
+    "product_volume_cm3": product_volume_cm3,
+    "distance_km": distance_km,
+    "is_same_state": int(is_same_state),
+    "estimated_days": estimated_days,
+    "purchase_dow": purchase_dow,
+    "purchase_hour": purchase_hour,
+}
 
-# Helper function to predict directly from model artifact if API is unreachable
-def predict_local(payload_dict):
-    model_path = os.path.join("models", "delay_model.joblib")
-    if not os.path.exists(model_path):
-        raise FileNotFoundError("Model artifact not found.")
+df_input = pd.DataFrame([payload])[artifact["feature_names"]]
 
-    artifact = joblib.load(model_path)
-    df_input = pd.DataFrame([payload_dict])[artifact["feature_names"]]
-    prob = float(artifact["model"].predict_proba(df_input)[0, 1])
+# Instant Live Inference
+prob = float(artifact["model"].predict_proba(df_input)[0, 1])
 
-    if prob < 0.25:
-        risk_level = "LOW"
-    elif prob < 0.45:
-        risk_level = "MEDIUM"
-    else:
-        risk_level = "HIGH"
+if prob < 0.25:
+    risk_level = "LOW"
+elif prob < 0.45:
+    risk_level = "MEDIUM"
+else:
+    risk_level = "HIGH"
 
-    return prob, risk_level
+# Real-Time Visual Display
+st.subheader("⚡ Live Risk Evaluation Result")
+res_col1, res_col2 = st.columns([1, 2])
 
+with res_col1:
+    st.metric(label="Calculated Delay Risk", value=f"{prob * 100:.1f}%")
 
-# Prediction Action
-if st.button("🚀 Evaluate Delay Risk", type="primary", use_container_width=True):
-    payload = {
-        "total_freight_value": total_freight_value,
-        "total_item_price": total_item_price,
-        "num_items": int(num_items),
-        "product_weight_g": product_weight_g,
-        "product_volume_cm3": product_volume_cm3,
-        "distance_km": distance_km,
-        "is_same_state": int(is_same_state),
-        "estimated_days": estimated_days,
-        "purchase_dow": purchase_dow,
-        "purchase_hour": purchase_hour,
-    }
-
-    prob = None
-    risk_level = None
-
-    # Try hitting FastAPI local server first, fallback to direct artifact inference
-    try:
-        response = requests.post(
-            "http://127.0.0.1:8000/predict", json=payload, timeout=2
+with res_col2:
+    if risk_level == "HIGH":
+        st.error(
+            "⚠️ **HIGH DELAY RISK DETECTED**\n\nThis package requires priority carrier assignment or proactive customer delivery notification."
         )
-        if response.status_code == 200:
-            res_data = response.json()
-            prob = res_data["delay_probability"]
-            risk_level = res_data["risk_level"]
-    except Exception:
-        # Fallback to loading model directly in cloud
-        prob, risk_level = predict_local(payload)
-
-    if prob is not None:
-        st.subheader("Prediction Result")
-        res_col1, res_col2 = st.columns([1, 2])
-
-        with res_col1:
-            st.metric(label="Calculated Delay Risk", value=f"{prob * 100:.1f}%")
-
-        with res_col2:
-            if risk_level == "HIGH":
-                st.error(
-                    "⚠️ **HIGH DELAY RISK DETECTED**\n\nThis package requires priority carrier assignment or proactive customer delivery notification."
-                )
-            elif risk_level == "MEDIUM":
-                st.warning(
-                    "⚡ **MODERATE DELAY RISK**\n\nMonitor fulfillment SLA times closely."
-                )
-            else:
-                st.success(
-                    "✅ **LOW DELAY RISK**\n\nOrder parameters align with standard on-time delivery schedules."
-                )
+    elif risk_level == "MEDIUM":
+        st.warning(
+            "⚡ **MODERATE DELAY RISK**\n\nMonitor fulfillment SLA times closely."
+        )
+    else:
+        st.success(
+            "✅ **LOW DELAY RISK**\n\nOrder parameters align with standard on-time delivery schedules."
+        )
