@@ -110,7 +110,7 @@ The **Streamlit UI** (`app/ui.py`) offers a user-friendly interface for logistic
 Clone the repository and set up a virtual environment:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/delivery-delay-predictor.git
+git clone https://github.com/dineshkrishna-264/delivery-delay-predictor.git
 cd delivery-delay-predictor
 
 # Create and activate virtual environment
