@@ -134,17 +134,17 @@ with res_col2:
 st.divider()
 
 # ---------------------------------------------------------
-# SECTION 2: Model Interpretability & Risk Drivers
+# SECTION 2: Active Order Analytics & Real-Time Drivers
 # ---------------------------------------------------------
-st.subheader("📊 Model Interpretability & Feature Drivers")
+st.subheader("🎯 Real-Time Active Order Interpretability")
 
 chart_col1, chart_col2 = st.columns(2)
 
 # Chart 1: Active Order Risk Attribution (Local Feature Attribution)
 with chart_col1:
-    st.markdown("**Current Order Risk Drivers (% Impact vs Average Order)**")
+    st.markdown("**Current Order Risk Drivers (% Impact)**")
     st.caption(
-        "Shows how much each feature setting pushes risk UP (+%) or DOWN (-%) relative to a standard baseline."
+        "Shows how much each current slider setting pushes risk UP (+%) or DOWN (-%) relative to a standard baseline."
     )
 
     baseline_payload = {
@@ -163,8 +163,6 @@ with chart_col1:
     df_base = pd.DataFrame([baseline_payload])[artifact["feature_names"]]
     base_prob = float(artifact["model"].predict_proba(df_base)[0, 1])
 
-    # Compute marginal risk delta for each user input feature
-    feature_impacts = {}
     display_names = {
         "distance_km": "Distance (km)",
         "estimated_days": "Promised Days",
@@ -178,12 +176,14 @@ with chart_col1:
         "num_items": "Item Count",
     }
 
+    feature_impacts = {}
     for feat in artifact["feature_names"]:
         modified_payload = baseline_payload.copy()
         modified_payload[feat] = payload[feat]
         df_mod = pd.DataFrame([modified_payload])[artifact["feature_names"]]
         mod_prob = float(artifact["model"].predict_proba(df_mod)[0, 1])
-        delta = (mod_prob - base_prob) * 100
+        # Rounded cleanly to 2 decimal places
+        delta = round((mod_prob - base_prob) * 100, 2)
         nice_name = display_names.get(feat, feat)
         feature_impacts[nice_name] = delta
 
@@ -193,46 +193,53 @@ with chart_col1:
 
     st.bar_chart(df_impacts.set_index("Feature"), horizontal=True)
 
-# Chart 2: Global Model Feature Importance
+# Chart 2: Distance Sensitivity Curve
 with chart_col2:
-    st.markdown("**Global Model Feature Importance**")
-    st.caption("Overall feature ranking across the entire 100k+ order dataset.")
+    st.markdown("**Shipping Distance Sensitivity Curve**")
+    st.caption(
+        "Real-time curve demonstrating how delay risk scales as shipping distance increases from 50 km to 3,000 km for this order."
+    )
 
-    # Model-wide feature weights
-    global_weights = {
-        "Promised Days": 32.5,
-        "Distance (km)": 28.0,
-        "Local Route": 14.2,
-        "Package Weight": 8.5,
-        "Freight Charge": 6.8,
-        "Package Volume": 4.1,
-        "Cart Price": 2.9,
-        "Purchase Hour": 1.5,
-        "Purchase Day": 1.0,
-        "Item Count": 0.5,
-    }
+    distances = np.linspace(50, 3000, 30)
+    sensitivity_payloads = []
+    for d in distances:
+        p = payload.copy()
+        p["distance_km"] = d
+        sensitivity_payloads.append(p)
 
-    df_global = pd.DataFrame(
-        list(global_weights.items()), columns=["Feature", "Importance (%)"]
-    ).sort_values(by="Importance (%)", ascending=True)
+    df_sens = pd.DataFrame(sensitivity_payloads)[artifact["feature_names"]]
+    probs = artifact["model"].predict_proba(df_sens)[:, 1] * 100
 
-    st.bar_chart(df_global.set_index("Feature"), horizontal=True)
+    df_chart = pd.DataFrame(
+        {"Distance (km)": distances, "Delay Risk (%)": probs}
+    )
+    st.line_chart(df_chart.set_index("Distance (km)"))
 
 st.divider()
 
-# Chart 3: Distance Sensitivity Curve
-st.markdown("**Shipping Distance Sensitivity Curve**")
-st.caption("Real-time curve demonstrating how delay risk scales as shipping distance increases from 50 km to 3,000 km.")
+# ---------------------------------------------------------
+# SECTION 3: Global Model Feature Importance (Standalone at Bottom)
+# ---------------------------------------------------------
+st.subheader("🌐 Global Model Feature Importance")
+st.caption(
+    "Overall baseline ranking of feature priority across the entire 100,000+ Olist historical dataset."
+)
 
-distances = np.linspace(50, 3000, 30)
-sensitivity_payloads = []
-for d in distances:
-    p = payload.copy()
-    p["distance_km"] = d
-    sensitivity_payloads.append(p)
+global_weights = {
+    "Promised Delivery Window (Days)": 32.5,
+    "Shipping Distance (km)": 28.0,
+    "Local Route (Same State)": 14.2,
+    "Package Weight (Grams)": 8.5,
+    "Freight Charge (BRL)": 6.8,
+    "Package Volume (cm³)": 4.1,
+    "Cart Item Price (BRL)": 2.9,
+    "Hour of Purchase": 1.5,
+    "Day of Week Purchased": 1.0,
+    "Number of Items": 0.5,
+}
 
-df_sens = pd.DataFrame(sensitivity_payloads)[artifact["feature_names"]]
-probs = artifact["model"].predict_proba(df_sens)[:, 1] * 100
+df_global = pd.DataFrame(
+    list(global_weights.items()), columns=["Feature", "Importance (%)"]
+).sort_values(by="Importance (%)", ascending=True)
 
-df_chart = pd.DataFrame({"Distance (km)": distances, "Delay Risk (%)": probs})
-st.line_chart(df_chart.set_index("Distance (km)"))
+st.bar_chart(df_global.set_index("Feature"), horizontal=True)
