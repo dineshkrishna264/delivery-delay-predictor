@@ -1,0 +1,15 @@
+# Python environment & cache
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Data directory (Exclude large CSVs, keep folder structure)
+data/raw/*
+data/interim/*
+data/processed/*
+!data/.gitkeep
+
+# Operating system files
+.DS_Store
+Thumbs.db
